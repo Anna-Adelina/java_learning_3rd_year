@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-add-reading-progress-and-created-by
+      author: anne
+      changes:
+        - addColumn:
+            tableName: book
+            columns:
+              - column:
+                  name: total_pages
+                  type: INT
+              - column:
+                  name: pages_read
+                  type: INT
+              - column:
+                  name: created_by
+                  type: VARCHAR(100)
