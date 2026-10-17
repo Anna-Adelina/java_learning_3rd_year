@@ -48,33 +48,35 @@ AC 6-7 (CurrentUsernameArgumentResolverTest): Перевірка резолве�
 AC 8 (BookControllerTest): Перевірка того, що навіть якщо клієнт надсилає createdBy: "hacker", у сервісі та у відповіді записується реальний авторизований користувач.
 
 
-
+--------------------------
 Лабораторна робота №4: AOP
 Тема: Aspect Oriented Programming (Spring AOP). 
 Реалізовно у пакеті com.booktracker.booktracker.aop.
 
 1. Анотації та аспекти
 Усі три анотації мають @Retention(RUNTIME) і @Target(METHOD), а аспекти знаходять їх через pointcut @annotation(...).
-  a) @Audited(action) (AuditedAspect / @AfterReturning) — після успішного виклику записує в AuditTrail і лог такі дані: користувач, дію, метод, id ресурсу.
-  Де застосовано: BookService.create, BookService.delete.
-  
-  b) @RateLimited(maxCalls, perSeconds) (RateLimitedAspect / @Before) — рахує виклики користувача у ковзному вікні. Якщо ліміт перевищено, кидає TooManyRequestsException (HTTP 429).
-  Де застосовано: AuthorService.create (5 викликів за 60 с).
-  
-  c) @RetryOnTransientFailure(maxAttempts) (RetryOnTransientFailureAspect / @Around) — повторює виклик, якщо виникла TransientDataAccessException. Після вичерпання спроб кидає останню помилку.
-  Де застосовано: BookService.create (3 спроби).
+a) @Audited(action) (AuditedAspect / @AfterReturning) — після успішного виклику записує в AuditTrail і лог такі дані: користувач, дію, метод, id ресурсу.
+Де застосовано: BookService.create, BookService.delete.
+
+b) @RateLimited(maxCalls, perSeconds) (RateLimitedAspect / @Before) — рахує виклики користувача у ковзному вікні. Якщо ліміт перевищено, кидає TooManyRequestsException (HTTP 429).
+Де застосовано: AuthorService.create (5 викликів за 60 с).
+
+c) @RetryOnTransientFailure(maxAttempts) (RetryOnTransientFailureAspect / @Around) — повторює виклик, якщо виникла TransientDataAccessException. Після вичерпання спроб кидає останню помилку.
+Де застосовано: BookService.create (3 спроби).
+
 
 2. Self-invocation
 Метод BookService.create позначений @Audited і @RetryOnTransientFailure. Його можна викликати двома способами:
-  a. Перший випадок (успішний шлях):
-     Шлях виклику: POST /api/books → BookController → bookService.create(...)
-     Через проксі?: Так.
-     Результат: Є запис AUDIT ... BOOK_CREATED, працює retry.
+
+a. Перший випадок (успішний шлях):
+Шлях виклику: POST /api/books → BookController → bookService.create(...)
+Через проксі?: Так.
+Результат: Є запис AUDIT ... BOOK_CREATED, працює retry.
    
-  b. Другий випадок (проблемний шлях):
-     Шлях виклику: POST /api/books/bulk → bookService.createAll(...) → this.create(...)
-     Через проксі?: Ні.
-     Результат: Книги створюються, але аудиту й retry немає, помилок теж немає.   
+b. Другий випадок (проблемний шлях):
+Шлях виклику: POST /api/books/bulk → bookService.createAll(...) → this.create(...)
+Через проксі?: Ні.
+Результат: Книги створюються, але аудиту й retry немає, помилок теж немає.   
 
 Причина: Spring AOP працює через проксі-об'єкт. Виклик this.create() усередині класу іде повз проксі, тому advice не спрацьовує. Це навмисна частина вправи, а не помилка.
 
