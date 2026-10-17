@@ -54,7 +54,9 @@ AC 8 (BookControllerTest): Перевірка того, що навіть якщ
 Реалізовно у пакеті com.booktracker.booktracker.aop.
 
 1. Анотації та аспекти
+
 Усі три анотації мають @Retention(RUNTIME) і @Target(METHOD), а аспекти знаходять їх через pointcut @annotation(...).
+
 a) @Audited(action) (AuditedAspect / @AfterReturning) — після успішного виклику записує в AuditTrail і лог такі дані: користувач, дію, метод, id ресурсу.
 Де застосовано: BookService.create, BookService.delete.
 
@@ -66,6 +68,7 @@ c) @RetryOnTransientFailure(maxAttempts) (RetryOnTransientFailureAspect / @Aroun
 
 
 2. Self-invocation
+
 Метод BookService.create позначений @Audited і @RetryOnTransientFailure. Його можна викликати двома способами:
 
 a. Перший випадок (успішний шлях):
