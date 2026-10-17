@@ -7,6 +7,7 @@ import com.booktracker.booktracker.repository.AuthorRepository;
 import com.booktracker.booktracker.service.exception.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import com.booktracker.booktracker.aop.RateLimited;
 
 import java.util.List;
 
@@ -30,6 +31,7 @@ public class AuthorService {
         return authorMapper.toDto(author);
     }
 
+    @RateLimited(maxCalls = 5, perSeconds = 60)
     public AuthorDto create(AuthorDto dto) {
         Author author = authorMapper.toEntity(dto);
         author.setId(null); // про це нижче

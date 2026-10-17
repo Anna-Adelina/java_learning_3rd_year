@@ -3,6 +3,7 @@ package com.booktracker.booktracker.controller;
 import com.booktracker.booktracker.annotation.CurrentUsername;
 import com.booktracker.booktracker.annotation.PostCreated;
 import com.booktracker.booktracker.dto.BookDto;
+import com.booktracker.booktracker.dto.BookBulkRequest;
 import com.booktracker.booktracker.service.BookService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,13 @@ public class BookController {
     public BookDto create(@Valid @RequestBody BookDto dto, @CurrentUsername String username) {
         dto.setCreatedBy(username);
         return bookService.create(dto);
+    }
+
+    @PostCreated("/bulk")
+    public List<BookDto> createAll(@Valid @RequestBody BookBulkRequest request,
+                                   @CurrentUsername String username) {
+        request.getBooks().forEach(book -> book.setCreatedBy(username));
+        return bookService.createAll(request.getBooks());
     }
 
     @PutMapping("/{id}")

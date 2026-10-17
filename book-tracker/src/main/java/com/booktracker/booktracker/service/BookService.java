@@ -10,9 +10,11 @@ import com.booktracker.booktracker.service.exception.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.security.access.prepost.PreAuthorize;
-
+import com.booktracker.booktracker.aop.Audited;
+import com.booktracker.booktracker.aop.RetryOnTransientFailure;
 
 import java.util.List;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +37,8 @@ public class BookService {
         return bookMapper.toDto(book);
     }
 
+    @RetryOnTransientFailure(maxAttempts = 3)
+    @Audited(action = "BOOK_CREATED")
     public BookDto create(BookDto dto) {
         Author author = authorRepository.findById(dto.getAuthorId())
                 .orElseThrow(() -> new EntityNotFoundException("Author not found: id=" + dto.getAuthorId()));
@@ -48,6 +52,14 @@ public class BookService {
                 .orElseThrow(() -> new EntityNotFoundException("Book not found after save: id=" + saved.getId()));
 
         return bookMapper.toDto(refreshed);
+    }
+
+    public List<BookDto> createAll(List<BookDto> dtos) {
+        List<BookDto> created = new ArrayList<>();
+        for (BookDto dto : dtos) {
+            created.add(this.create(dto));
+        }
+        return created;
     }
 
     public BookDto update(Long id, BookDto dto) {
@@ -67,6 +79,7 @@ public class BookService {
         return bookMapper.toDto(saved);
     }
     @PreAuthorize("hasRole('ADMIN')")
+    @Audited(action = "BOOK_DELETED")
     public void delete(Long id) {
         if (!bookRepository.existsById(id)) {
             throw new EntityNotFoundException("Book not found: id=" + id);

@@ -1,6 +1,7 @@
 package com.booktracker.booktracker.controller.advice;
 
 import com.booktracker.booktracker.service.exception.EntityNotFoundException;
+import com.booktracker.booktracker.service.exception.TooManyRequestsException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -32,6 +33,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(buildBody(HttpStatus.FORBIDDEN, "Access denied: " + ex.getMessage()));
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(buildBody(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage()));
     }
 
     private Map<String, Object> buildBody(HttpStatus status, String message) {
