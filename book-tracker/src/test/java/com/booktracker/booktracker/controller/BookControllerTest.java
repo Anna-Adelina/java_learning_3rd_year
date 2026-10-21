@@ -21,6 +21,12 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
 import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.OAuth2ResourceServerAutoConfiguration;
+import com.booktracker.booktracker.async.BookCreatedNotifier;
+import com.booktracker.booktracker.async.BookDetailsService;
+import com.booktracker.booktracker.dto.BookDetailsDto;
+import org.springframework.core.task.TaskRejectedException;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.OAuth2ResourceServerWebSecurityAutoConfiguration;
 
 import java.lang.reflect.Method;
@@ -53,6 +59,12 @@ class BookControllerTest {
 
     @MockitoBean
     private BookService bookService;
+
+    @MockitoBean
+    private BookDetailsService bookDetailsService;
+
+    @MockitoBean
+    private BookCreatedNotifier bookCreatedNotifier;
 
     private static final String VALID_BODY =
             "{\"title\":\"Dune\",\"authorId\":1,\"readingStatus\":\"READING\",\"totalPages\":300,\"pagesRead\":10}";
@@ -128,5 +140,40 @@ class BookControllerTest {
         var captor = org.mockito.ArgumentCaptor.forClass(BookDto.class);
         verify(bookService).create(captor.capture());
         assertEquals("anna", captor.getValue().getCreatedBy());
+    }
+
+    @Test
+    void create_afterSuccessfulCreation_notifiesWithCurrentUserAndTitle() throws Exception {
+        when(bookService.create(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        mockMvc.perform(post("/api/books")
+                        .principal(new TestingAuthenticationToken("anna", null))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isCreated());
+
+        verify(bookCreatedNotifier).notifyBookCreated("anna", "Dune");
+    }
+
+    @Test
+    void details_returnsCombinedResult() throws Exception {
+        when(bookDetailsService.getDetails(1L))
+                .thenReturn(new BookDetailsDto(1L, "Dune", 4.5, "bio", false));
+
+        mockMvc.perform(get("/api/books/1/details"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Dune"))
+                .andExpect(jsonPath("$.rating").value(4.5))
+                .andExpect(jsonPath("$.partial").value(false));
+    }
+
+    @Test
+    void details_whenExecutorSaturated_returns503NotAccidental500() throws Exception {
+        when(bookDetailsService.getDetails(1L)).thenThrow(new TaskRejectedException("pool is full"));
+
+        mockMvc.perform(get("/api/books/1/details"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("try again later")));
     }
 }

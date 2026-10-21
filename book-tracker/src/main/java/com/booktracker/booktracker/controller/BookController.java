@@ -2,13 +2,17 @@ package com.booktracker.booktracker.controller;
 
 import com.booktracker.booktracker.annotation.CurrentUsername;
 import com.booktracker.booktracker.annotation.PostCreated;
-import com.booktracker.booktracker.dto.BookDto;
+import com.booktracker.booktracker.async.BookCreatedNotifier;
+import com.booktracker.booktracker.async.BookDetailsService;
 import com.booktracker.booktracker.dto.BookBulkRequest;
+import com.booktracker.booktracker.dto.BookDetailsDto;
+import com.booktracker.booktracker.dto.BookDto;
 import com.booktracker.booktracker.service.BookService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+
 
 import java.util.List;
 
@@ -18,6 +22,8 @@ import java.util.List;
 public class BookController {
 
     private final BookService bookService;
+    private final BookDetailsService bookDetailsService;
+    private final BookCreatedNotifier bookCreatedNotifier;
 
     @GetMapping
     public List<BookDto> findAll() {
@@ -29,10 +35,18 @@ public class BookController {
         return bookService.findById(id);
     }
 
+    // два повільні виклики йдуть паралельно, відповідь збирається з обох
+    @GetMapping("/{id}/details")
+    public BookDetailsDto details(@PathVariable Long id) {
+        return bookDetailsService.getDetails(id);
+    }
+
     @PostCreated
     public BookDto create(@Valid @RequestBody BookDto dto, @CurrentUsername String username) {
         dto.setCreatedBy(username);
-        return bookService.create(dto);
+        BookDto created = bookService.create(dto);
+        bookCreatedNotifier.notifyBookCreated(username, created.getTitle());   // fire-and-forget
+        return created;
     }
 
     @PostCreated("/bulk")

@@ -8,6 +8,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.http.HttpHeaders;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -39,6 +41,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(buildBody(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TaskRejectedException.class)
+    public ResponseEntity<Map<String, Object>> handleTaskRejected(TaskRejectedException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(buildBody(HttpStatus.SERVICE_UNAVAILABLE, "Server is busy, please try again later"));
     }
 
     private Map<String, Object> buildBody(HttpStatus status, String message) {
