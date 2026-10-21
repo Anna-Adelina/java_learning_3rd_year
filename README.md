@@ -46,3 +46,59 @@ AC 4-5 (BookControllerTest): Перевірка мета-анотації @PostC
 AC 6-7 (CurrentUsernameArgumentResolverTest): Перевірка резолвера для JWT, OIDC, звичайного Principal та обробки відсутності авторизації.
 
 AC 8 (BookControllerTest): Перевірка того, що навіть якщо клієнт надсилає createdBy: "hacker", у сервісі та у відповіді записується реальний авторизований користувач.
+
+
+--------------------------
+Лабораторна робота №4: AOP
+Тема: Aspect Oriented Programming (Spring AOP). 
+Реалізовно у пакеті com.booktracker.booktracker.aop.
+
+1. Анотації та аспекти
+
+Усі три анотації мають @Retention(RUNTIME) і @Target(METHOD), а аспекти знаходять їх через pointcut @annotation(...).
+
+a) @Audited(action) (AuditedAspect / @AfterReturning) — після успішного виклику записує в AuditTrail і лог такі дані: користувач, дію, метод, id ресурсу.
+Де застосовано: BookService.create, BookService.delete.
+
+b) @RateLimited(maxCalls, perSeconds) (RateLimitedAspect / @Before) — рахує виклики користувача у ковзному вікні. Якщо ліміт перевищено, кидає TooManyRequestsException (HTTP 429).
+Де застосовано: AuthorService.create (5 викликів за 60 с).
+
+c) @RetryOnTransientFailure(maxAttempts) (RetryOnTransientFailureAspect / @Around) — повторює виклик, якщо виникла TransientDataAccessException. Після вичерпання спроб кидає останню помилку.
+Де застосовано: BookService.create (3 спроби).
+
+
+2. Self-invocation
+
+Метод BookService.create позначений @Audited і @RetryOnTransientFailure. Його можна викликати двома способами:
+
+a. Перший випадок (успішний шлях):
+Шлях виклику: POST /api/books → BookController → bookService.create(...)
+Через проксі?: Так.
+Результат: Є запис AUDIT ... BOOK_CREATED, працює retry.
+   
+b. Другий випадок (проблемний шлях):
+Шлях виклику: POST /api/books/bulk → bookService.createAll(...) → this.create(...)
+Через проксі?: Ні.
+Результат: Книги створюються, але аудиту й retry немає, помилок теж немає.   
+
+Причина: Spring AOP працює через проксі-об'єкт. Виклик this.create() усередині класу іде повз проксі, тому advice не спрацьовує. Це навмисна частина вправи, а не помилка.
+
+Як перевірити вручну:
+Виконати POST /api/books/bulk: у консолі після insert into book немає рядка AUDIT.
+<img width="1086" height="723" alt="Книги id 1 і 2 аудит-запису в консолі немає, бо createAll викликає create повз проксі" src="https://github.com/user-attachments/assets/84dd38ed-84f1-43e2-bbf6-137e053698d2" />
+
+Виконати POST /api/books: у консолі з'являється AUDIT user=admin-user action=BOOK_CREATED method=BookService.create(..) resourceId=....
+<img width="958" height="113" alt="аудит-запис BOOK_CREATED (user=admin-user, resourceId=1)" src="https://github.com/user-attachments/assets/fb25304d-0dbe-4a96-afd3-411733449e96" />
+
+3. Тести
+a) Unit-тести advice (AuditedAspectTest, RateLimitedAspectTest, RetryOnTransientFailureAspectTest):
+     тестують логіку із замокованими JoinPoint та ProceedingJoinPoint без підняття Spring-контексту.
+b) AopAnnotationsContractTest:
+     перевіряє, що всі анотації мають RUNTIME retention та METHOD target.
+c) SelfInvocationTest:
+     демонструє роботу проксі: зовнішній виклик create активує аудит і retry, тоді як внутрішній виклик this.create — ні.  
+Запуск: mvn test
+
+4. Rate limit: перевірка
+Шість запитів поспіль до POST /api/authors: перші п'ять повертають OK, шостий повертає 429. Ліміт скидається через 60 секунд.
+<img width="1823" height="220" alt="вивід із 429 на шостому запиті" src="https://github.com/user-attachments/assets/b7aa4593-454d-4a93-bec8-0488dea12e6f" />
