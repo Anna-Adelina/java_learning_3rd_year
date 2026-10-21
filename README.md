@@ -22,6 +22,7 @@
 Реалізація: config/CurrentUsernameArgumentResolver, реєстрація в config/WebConfig
 
 Деталі реалізації анотацій:
+
 а) @ValidReadingProgress (Bean Validation)
 Нове бізнес-правило для BookDto, що перевіряє узгодженість трьох полів:
 - pagesRead не можна вказати без totalPages.
@@ -71,14 +72,20 @@ c) @RetryOnTransientFailure(maxAttempts) (RetryOnTransientFailureAspect / @Aroun
 
 Метод BookService.create позначений @Audited і @RetryOnTransientFailure. Його можна викликати двома способами:
 
-a. Перший випадок (успішний шлях):
+a) Перший випадок (успішний шлях):
+
 Шлях виклику: POST /api/books → BookController → bookService.create(...)
+
 Через проксі?: Так.
+
 Результат: Є запис AUDIT ... BOOK_CREATED, працює retry.
-   
-b. Другий випадок (проблемний шлях):
+
+b) Другий випадок (проблемний шлях):
+
 Шлях виклику: POST /api/books/bulk → bookService.createAll(...) → this.create(...)
+
 Через проксі?: Ні.
+
 Результат: Книги створюються, але аудиту й retry немає, помилок теж немає.   
 
 Причина: Spring AOP працює через проксі-об'єкт. Виклик this.create() усередині класу іде повз проксі, тому advice не спрацьовує. Це навмисна частина вправи, а не помилка.
@@ -91,20 +98,37 @@ b. Другий випадок (проблемний шлях):
 <img width="958" height="113" alt="аудит-запис BOOK_CREATED (user=admin-user, resourceId=1)" src="https://github.com/user-attachments/assets/fb25304d-0dbe-4a96-afd3-411733449e96" />
 
 3. Тести
+   
 a) Unit-тести advice (AuditedAspectTest, RateLimitedAspectTest, RetryOnTransientFailureAspectTest):
+
      тестують логіку із замокованими JoinPoint та ProceedingJoinPoint без підняття Spring-контексту.
+   
 b) AopAnnotationsContractTest:
+
      перевіряє, що всі анотації мають RUNTIME retention та METHOD target.
+     
 c) SelfInvocationTest:
+
+     зовнішній виклик create спрацьовує через проксі (аудит, retry), а createAll → this.create ні
+
+Запуск: mvn test
+
+4. Rate limit: перевірка
+Шість запитів поспіль до POST /api/authors: перші п'ять повертають OK, шостий повертає 429. Ліміт скидається через 60 секунд.
+<img width="1823" height="220" alt="вивід із 429 на шостому запиті" src="https://github.com/user-attachments/assets/b7aa4593-454d-4a93-bec8-0488dea12e6f" />
 
 --------------------------
 Лабораторна робота №5: Асинхронна обробка
+
 Тема: Асинхронна обробка (@Async, CompletableFuture, ThreadPoolTaskExecutor). Реалізовано у пакеті com.booktracker.booktracker.async.
 
-Виконавець
-AsyncConfig визначає бін ThreadPoolTaskExecutor (bookTaskExecutor) з явними обмеженнями: базовий пул 2, максимальний 4, черга 10, префікс потоків book-async-. Політика відхилення задана явно: AbortPolicy. Цей виконавець є виконавцем за замовчуванням для @Async (AsyncConfigurer), тому методи не потрапляють ні в пул Spring Boot за замовчуванням, ні в SimpleAsyncTaskExecutor. Пул вміщує 4 завдання, що виконуються, і 10 в черзі, тобто 14.
+Виконавець: AsyncConfig визначає бін ThreadPoolTaskExecutor (bookTaskExecutor) з явними обмеженнями: базовий пул 2, максимальний 4, черга 10, префікс потоків book-async-. 
+Політика відхилення задана явно: AbortPolicy. 
+Цей виконавець є виконавцем за замовчуванням для @Async (AsyncConfigurer), тому методи не потрапляють ні в пул Spring Boot за замовчуванням, ні в SimpleAsyncTaskExecutor.
+Пул вміщує 4 завдання, що виконуються, і 10 в черзі, тобто 14.
 
-Три повільні побічні ефекти
+Три повільні побічні ефекти:
+
 Зовнішні сервіси імітуються SimulatedLatency (затримка ~1 с, налаштовується через app.async.simulated-delay-ms).
 
 a) Сповіщення "книгу додано" (NotificationService.sendBookCreatedEmail) — @Async void, "запустив і забув". Викликається з BookController.create через BookCreatedNotifier. Збої в void-методі фіксує RecordingAsyncExceptionHandler (AsyncUncaughtExceptionHandler): пише в лог і запам'ятовує помилку.
@@ -120,26 +144,32 @@ b) Рейтинг книги (BookInsightsService.fetchRating) і c) біогр�
 - GET /api/books/{id}/details: GlobalExceptionHandler повертає 503 Service Unavailable із заголовком Retry-After: 5 і повідомленням "Server is busy, please try again later", а не випадкову 500.
 - Сповіщення: BookCreatedNotifier перехоплює виняток, пише попередження в лог і пропускає лист, бо він не критичний і не має провалювати створення книги. try/catch стоїть в окремому біні, оскільки @Async працює через проксі (як і AOP, self-invocation його оминає).
 
-Тести
+Тести:
+
 a) AsyncConfigTest: потік має префікс book-async-, не default і не SimpleAsyncTaskExecutor, виконавець має явні розміри пулу й черги.
+
 b) NotificationServiceTest: метод повертає керування одразу, завершується пізніше в потоці виконавця; збій у @Async void фіксується AsyncUncaughtExceptionHandler.
+
 c) BookDetailsServiceTest: два виклики виконуються одночасно (CyclicBarrier на двох учасників проходить лише при паралельності) і результати об'єднані; збій одного виклику дає partial-результат; повільний виклик обривається за таймаутом.
+
 d) ExecutorSaturationTest: виконавець із 1 потоком і без черги відхиляє зайве завдання через TaskRejectedException.
+
 e) GlobalExceptionHandlerAsyncTest, BookControllerTest: TaskRejectedException перетворюється на 503 з Retry-After, а не на 500; після створення книги викликається сповіщення з користувачем і назвою.
+
 f) BookCreatedNotifierTest: при переповненні сповіщення пропускається без винятку.
+
+
 Запуск: mvn test
 
-Перевірка вручну
+
+Перевірка вручну:
+
 A) Fire-and-forget: POST /api/books повернув відповідь за 124 мс, а в консолі приблизно через секунду з'явився рядок Email sent to admin-user: Book added: 1984 (thread book-async-1).
 <img width="1836" height="340" alt="Демо A - повільний метод не блокує, POST took 124 ms" src="https://github.com/user-attachments/assets/526a9191-c6c4-4aab-8d55-96bc45d63105" />
+
 B) Паралельність: GET /api/books/1/details виконався за 1033 мс (рейтинг 4.5, partial = False). Якби виклики йшли по черзі, було б понад 2000 мс.
 <img width="1815" height="310" alt="Демо B - два виклики паралельно, Elapsed 1033 ms" src="https://github.com/user-attachments/assets/af9d97ad-ebd2-43a8-a945-57848bae622f" />
+
 C) Переповнення: 10 одночасних запитів до /details дали 6 відповідей 200 і 4 відповіді 503, жодної 500.
      демонструє роботу проксі: зовнішній виклик create активує аудит і retry, тоді як внутрішній виклик this.create — ні.  
 <img width="1815" height="400" alt="Демо C - переповнення → 503" src="https://github.com/user-attachments/assets/d61c139b-99d8-4461-9dfc-106f9212e0e4" />
-
-Запуск: mvn test
-
-5. Rate limit: перевірка
-Шість запитів поспіль до POST /api/authors: перші п'ять повертають OK, шостий повертає 429. Ліміт скидається через 60 секунд.
-<img width="1823" height="220" alt="вивід із 429 на шостому запиті" src="https://github.com/user-attachments/assets/b7aa4593-454d-4a93-bec8-0488dea12e6f" />
