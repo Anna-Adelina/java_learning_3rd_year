@@ -1,0 +1,31 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-book-last-reminded-at
+      author: anne
+      changes:
+        - addColumn:
+            tableName: book
+            columns:
+              - column:
+                  name: last_reminded_at
+                  type: TIMESTAMP
+
+  - changeSet:
+      id: 006-create-reading-report
+      author: anne
+      changes:
+        - createTable:
+            tableName: reading_report
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true, nullable: false } }
+              - column: { name: period_type, type: VARCHAR(20), constraints: { nullable: false } }
+              - column: { name: report_date, type: DATE, constraints: { nullable: false } }
+              - column: { name: total_books, type: INT, constraints: { nullable: false } }
+              - column: { name: planned_count, type: INT, constraints: { nullable: false } }
+              - column: { name: reading_count, type: INT, constraints: { nullable: false } }
+              - column: { name: finished_count, type: INT, constraints: { nullable: false } }
+              - column: { name: generated_at, type: TIMESTAMP, constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: reading_report
+            columnNames: period_type, report_date
+            constraintName: uq_reading_report_period

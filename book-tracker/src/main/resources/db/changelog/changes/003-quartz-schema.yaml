@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-quartz-schema-h2
+      author: anne
+      dbms: h2
+      changes:
+        - sqlFile:
+            path: sql/quartz_tables_h2.sql
+            relativeToChangelogFile: true
+            splitStatements: true
+            endDelimiter: ;
+            stripComments: true

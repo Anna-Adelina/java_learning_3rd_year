@@ -40,4 +40,7 @@ public class Book {
 
     @Column(name = "created_by", updatable = false)
     private String createdBy;
+
+    @Column(name = "last_reminded_at")
+    private LocalDateTime lastRemindedAt;
 }

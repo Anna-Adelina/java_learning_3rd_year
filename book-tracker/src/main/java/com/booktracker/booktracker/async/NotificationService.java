@@ -44,6 +44,16 @@ public class NotificationService {
         log.info("Email sent to {}: {} (thread {})", email.recipient(), email.subject(), email.threadName());
     }
 
+    public void sendReadingReminderEmail(String recipient, String bookTitle) {
+        SentEmail email = new SentEmail(recipient, "Reminder: keep reading " + bookTitle,
+                Thread.currentThread().getName());
+        sent.addLast(email);
+        while (sent.size() > MAX_KEPT) {
+            sent.pollFirst();
+        }
+        log.info("Reminder sent to {}: {}", recipient, email.subject());
+    }
+
     public List<SentEmail> sentEmails() {
         return List.copyOf(sent);
     }
