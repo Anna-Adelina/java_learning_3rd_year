@@ -1,4 +1,4 @@
-Лабораторна робота №3: Анотації
+## Лабораторна робота №3: Анотації
 Предметна область: облік книг (Book, Author), статус читання (PLANNED, READING, FINISHED) і прогрес читання (totalPages, pagesRead).
 
 У проєкті реалізовано три кастомні анотації, кожна з унікальним механізмом:
@@ -49,8 +49,7 @@ AC 6-7 (CurrentUsernameArgumentResolverTest): Перевірка резолве�
 AC 8 (BookControllerTest): Перевірка того, що навіть якщо клієнт надсилає createdBy: "hacker", у сервісі та у відповіді записується реальний авторизований користувач.
 
 
---------------------------
-Лабораторна робота №4: AOP
+# Лабораторна робота №4: AOP
 Тема: Aspect Oriented Programming (Spring AOP). 
 Реалізовно у пакеті com.booktracker.booktracker.aop.
 
@@ -117,8 +116,8 @@ c) SelfInvocationTest:
 Шість запитів поспіль до POST /api/authors: перші п'ять повертають OK, шостий повертає 429. Ліміт скидається через 60 секунд.
 <img width="1823" height="220" alt="вивід із 429 на шостому запиті" src="https://github.com/user-attachments/assets/b7aa4593-454d-4a93-bec8-0488dea12e6f" />
 
---------------------------
-Лабораторна робота №5: Асинхронна обробка
+
+## Лабораторна робота №5: Асинхронна обробка
 
 Тема: Асинхронна обробка (@Async, CompletableFuture, ThreadPoolTaskExecutor). Реалізовано у пакеті com.booktracker.booktracker.async.
 
@@ -173,3 +172,210 @@ B) Паралельність: GET /api/books/1/details виконався за 
 C) Переповнення: 10 одночасних запитів до /details дали 6 відповідей 200 і 4 відповіді 503, жодної 500.
      демонструє роботу проксі: зовнішній виклик create активує аудит і retry, тоді як внутрішній виклик this.create — ні.  
 <img width="1815" height="400" alt="Демо C - переповнення → 503" src="https://github.com/user-attachments/assets/d61c139b-99d8-4461-9dfc-106f9212e0e4" />
+
+
+
+## Лабораторна робота №6: Quartz Scheduler
+
+**Тема**: Планування завдань (Quartz Scheduler, JDBC job store, Liquibase). 
+
+Реалізовано у пакетах com.booktracker.booktracker.job, config (QuartzConfig) та service.
+
+**Предметна область**: облік книг. Регулярні завдання виконуються за розкладом, який зберігається в базі даних, тому перезапуск або розгортання нової версії не скасовує й не дублює їх.
+
+&nbsp;
+
+**Завдання (Jobs) і тригери**
+
+* **`ReadingReminderJob`** (Група: `reminders`)
+  * **Що робить:** нагадує про книги зі статусом `READING`, про які давно не нагадували
+  * **Тригери:**
+    * `readingReminderDaily`: щодня о 09:00 (`0 0 9 * * ?`)
+
+* **`ReadingReportJob`** (Група: `reports`)
+  * **Що робить:** зберігає знімок статистики (книг усього, по статусах) у таблицю `reading_report`
+  * **Тригери:**
+    * `readingReportWeekly`: щопонеділка о 08:00 (`0 0 8 ? * MON`)
+    * `readingReportMonthly`: 1-го числа о 08:00 (`0 0 8 1 * ?`)
+
+ReadingReportJob має два тригери. Усі cron-тригери працюють у часовому поясі Europe/Kyiv.
+
+Job-класи, JobDetail і Trigger бини оголошені в одному місці: config/QuartzConfig (@Configuration). 
+
+Кожен тригер вказує на завдання через JobKey (forJob(...)), кожне завдання й тригер мають явні name і group.
+
+&nbsp;
+
+**Схема бази даних**
+
+* Схема Quartz (`QRTZ_*`) створюється Liquibase: `db/changelog/changes/003-quartz-schema.yaml` виконує SQL-скрипт `changes/sql/quartz_tables_h2.sql` (офіційна схема Quartz для H2; тип `IMAGE` замінено на `BLOB`).
+* Spring Boot налаштований не створювати схему: `spring.quartz.jdbc.initialize-schema: never`.
+* `004-reminders-and-reports.yaml` додає колонку `book.last_reminded_at` та таблицю `reading_report` з унікальним обмеженням `(period_type, report_date)`.
+* Для збереження розкладу після перезапуску база змінена з `jdbc:h2:mem:booktracker` на файлову: `jdbc:h2:file:./data/booktracker`. Папку `data/` додано в `.gitignore`.
+
+&nbsp;
+
+**Налаштування Quartz (`application.yaml`):**
+
+```yaml
+spring:
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    overwrite-existing-jobs: true
+    scheduler-name: booktracker-scheduler
+    wait-for-jobs-to-complete-on-shutdown: true
+```
+
+overwrite-existing-jobs: true потрібен, щоб зміни розкладу чи параметрів у коді застосовувалися при розгортанні нової версії (інакше Quartz лишає старі визначення з бази).
+
+&nbsp;
+
+**Параметри через JobDataMap**
+
+Кожен JobDetail містить значення за замовчуванням, тригер може перевизначити деякі з них. Quartz об'єднує обидві карти, значення тригера має пріоритет, а ключі, яких у тригері немає, лишаються за замовчуванням.
+
+| Job | Ключ | Значення за замовчуванням | Перевизначення |
+| :--- | :--- | :--- | :--- |
+| `ReadingReminderJob` | `remindEveryDays` | `7` | немає |
+| `ReadingReminderJob` | `batchLimit` | `100` | немає |
+| `ReadingReportJob` | `periodType` | `WEEKLY` | `readingReportMonthly` ставить `MONTHLY` |
+| `ReadingReportJob` | `minBooks` | `1` | немає (у місячного тригера лишається 1) |
+
+Job читає параметри через JobParams, який кидає явну JobParameterException (з назвою ключа), якщо ключ відсутній або має неправильний тип чи значення. Така помилка вважається помилкою конфігурації, тож повторного запуску не буде.
+
+&nbsp;
+
+**Легкі Job-и**
+
+Job-клас лише читає параметри й робить один виклик сервісу Spring, бізнес-логіки в ньому немає. Межа транзакції проходить на рівні методу сервісу (`@Transactional`):
+
+* `ReadingReminderService.sendReminders(remindEveryDays, batchLimit)`
+* `ReadingReportService.generate(periodType, minBooks)`
+
+&nbsp;
+
+**Ідемпотентність**
+
+* **Нагадування.** Після відправки листа сервіс записує `last_reminded_at`. Запит `findDueForReminder` вибирає лише книги зі статусом `READING`, які ніколи не отримували нагадування або отримали його раніше, ніж `remindEveryDays` днів тому. Повторний запуск одразу після першого нічого не знаходить.
+* **Звіт.** Перед створенням сервіс перевіряє, чи є звіт для пари (`periodType`, `reportDate`). Додатково унікальне обмеження в БД не дозволяє створити дублікат навіть при гонці.
+
+&nbsp;
+
+**Збої й повторний запуск**
+
+Для двох Job-ів свідомо обрано дві різні стратегії:
+
+| Job | Стратегія | Реалізація |
+| :--- | :--- | :--- |
+| `ReadingReminderJob` | повтор з обмеженням | при помилці `JobExecutionException(e, true)` (`refireImmediately`), доки `getRefireCount() < MAX_REFIRES` (3); після цього помилка логується й Job чекає наступного cron. Нескінченного циклу немає |
+| `ReadingReportJob` | фіксація помилки й очікування | виняток перехоплюється, пишеться `log.error`, наступна спроба буде за наступним розкладом |
+
+&nbsp;
+
+**Паралельність і misfire**
+
+* **Обидва Job-и позначені `@DisallowConcurrentExecution`**: наступний запуск не починається, доки не завершився попередній. Оскільки обидва тригери `ReadingReportJob` вказують на один `JobKey`, вони теж не виконуються одночасно.
+* **Для кожного тригера явно задана misfire-інструкція:**
+
+| Тригер | Інструкція | Чому |
+| :--- | :--- | :--- |
+| `readingReminderDaily` | `DO_NOTHING` | пропущене нагадування наздоганяти не потрібно, наступне прийде за розкладом[cite: 3] |
+| `readingReportWeekly`, `readingReportMonthly` | `FIRE_ONCE_NOW` (`FireAndProceed`) | пропущений звіт безпечно виконати одразу, бо Job ідемпотентний[cite: 3] |
+
+&nbsp;
+
+**Тести**
+
+Усього додано **21 новий тест**:
+
+* **AC 1, 2, 5, 6, 7: `QuartzConfigTest`** (звичайний JUnit, без Spring-контексту)
+  * тригери вказують на свої Job-и через `JobKey`, `name` і `group` не порожні;
+  * значення з тригера перевизначає значення `JobDetail`, а решта ключів лишаються за замовчуванням;
+  * `isConcurrentExecutionDisallowed()` для обох Job-ів;
+  * misfire-інструкція кожного тригера;
+  * ідентифікатор часового поясу `Europe/Kyiv` (невідомий id Quartz мовчки замінює на GMT, тому тест це перевіряє).
+
+* **AC 3, 4, 9: `ReadingReminderJobTest`, `ReadingReportJobTest`** (Mockito)
+  * Job читає параметри й викликає сервіс рівно один раз;
+  * відсутній або неправильно названий ключ дає `JobExecutionException` без refire;
+  * при збої нагадування перезапускається, поки не вичерпано `MAX_REFIRES`, після цього виняток не кидається;
+  * збій звіту фіксується й не кидається далі.
+
+* **AC 8: `ReadingReminderServiceIT`, `ReadingReportServiceIT`** (`@DataJpaTest`, H2 + Liquibase)
+  * два запуски поспіль: нагадування надсилається один раз, у `reading_report` лишається один рядок;
+  * книги не в статусі `READING` і книги без власника ігноруються;
+  * повторне нагадування лише після спливу `remindEveryDays`;
+  * звіти `WEEKLY` і `MONTHLY` за один день — це різні записи;
+  * при кількості книг менше `minBooks` звіт не створюється.
+
+* **AC 10: `QuartzSchemaIT`**
+  * таблиці `QRTZ_*` (11 штук) існують завдяки changeset Liquibase;
+  * `spring.quartz.jdbc.initialize-schema` дорівнює `never`, `job-store-type` дорівнює `jdbc`.
+
+**Запуск:** `mvn test`
+
+&nbsp;
+
+**Перевірка вручну**
+
+#### A) Розклад у БД
+У H2 Console (`jdbc:h2:file:./data/booktracker`):
+
+```sql
+SELECT JOB_NAME, JOB_GROUP FROM QRTZ_JOB_DETAILS;
+SELECT TRIGGER_NAME, JOB_NAME, TRIGGER_STATE FROM QRTZ_TRIGGERS;
+SELECT TRIGGER_NAME, CRON_EXPRESSION, TIME_ZONE_ID FROM QRTZ_CRON_TRIGGERS
+```
+
+Результат: 2 завдання, 3 тригери в стані WAITING, у всіх cron-тригерів Europe/Kyiv.
+
+<img width="1009" height="758" alt="2 job-и, 3 тригери в стані WAITING, у всіх cron Europe - Kyiv" src="https://github.com/user-attachments/assets/bd26017b-ef17-45f1-b82b-398ea68f8ce2" />
+
+
+#### B) Розклад переживає перезапуск
+Після повного перезапуску застосунку:
+
+```sql
+SELECT (SELECT COUNT(*) FROM QRTZ_JOB_DETAILS) AS jobs,
+       (SELECT COUNT(*) FROM QRTZ_TRIGGERS) AS triggers;
+```
+
+Результат: 2 і 3, тобто завдання не пропали й не задублювались.
+
+<img width="845" height="371" alt="збереження розкладу після перезапуску" src="https://github.com/user-attachments/assets/cfb5bea3-e466-4d9c-af3e-ccce4ab0939d" />
+
+#### C) Схема створена Liquibase
+
+```sql
+SELECT ID, FILENAME, EXECTYPE FROM DATABASECHANGELOG ORDER BY ORDEREXECUTED;
+```
+
+Результат: серед записів є 004-quartz-schema-h2 зі статусом EXECUTED
+
+<img width="1019" height="527" alt="Схема Quartz створена через Liquibase" src="https://github.com/user-attachments/assets/2771091c-01ad-4398-93ce-a548a8c1abe6" />
+
+
+#### D) Ідемпотентність нагадування
+Для демонстрації cron нагадування тимчасово змінено на кожні 10 секунд (`0/10 * * * * ?`), після чого `last_reminded_at` скинуто командою `UPDATE book SET last_reminded_at = NULL`. 
+
+**Лог:**
+```text
+01:36:40  Reminder sent to anna: Reminder: keep reading 1984
+01:36:40  Reading reminders sent: 1
+01:36:50  Reading reminders sent: 0
+01:37:00  Reading reminders sent: 0
+```
+
+<img width="1749" height="122" alt="Ідемпотентність ReadingReminderJob  Перший запуск знайшов книгу зі статусом READING, надіслав нагадування і записав час у last_reminded_at (sent 1)  Повторні запуски вже нічого не знаходять (sent 0)" src="https://github.com/user-attachments/assets/2c0e28ed-ca0a-4a26-88b1-ab243fc0edd2" />
+
+#### E) Ідемпотентність звіту
+Для демонстрації cron тижневого звіту тимчасово змінено на кожні 10 секунд. Після кількох запусків:
+
+```sql
+SELECT * FROM reading_report;
+```
+
+<img width="1362" height="537" alt="таблиця reading_report з одним рядком WEEKLY після багатьох запусків" src="https://github.com/user-attachments/assets/ba2c90c0-008a-43c2-a784-ad0d46e42ca1" />
+
