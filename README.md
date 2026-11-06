@@ -379,3 +379,148 @@ SELECT * FROM reading_report;
 
 <img width="1362" height="537" alt="таблиця reading_report з одним рядком WEEKLY після багатьох запусків" src="https://github.com/user-attachments/assets/ba2c90c0-008a-43c2-a784-ad0d46e42ca1" />
 
+# Лабораторна №7: Multi-module Maven
+
+**Ідея**: Один репозиторій і один процес збірки, що охоплюють кілька **незалежних сервісів**.
+Кожен сервіс має власний `main`, порт, тести, `application.yml` і `Dockerfile`.
+Батьківський POM лише об'єднує їх у спільну збірку й зберігає спільні елементи.
+
+
+## Модулі
+
+| Модуль | Тип | Порт | Призначення |
+|---|---|---|---|
+| **`common`** | бібліотека (jar) | — | лише спільні DTO, enum `ReadingStatus` та валідатор `@ValidReadingProgress` |
+| **`book-service`** | Spring Boot застосунок | `8080` | CRUD книжок і авторів, веб-інтерфейс (Thymeleaf), Spring Security (OIDC + JWT через Keycloak), Liquibase, AOP, async |
+| **`reporting-service`** | Spring Boot застосунок | `8081` | Quartz-job'и: періодичні звіти та нагадування про читання |
+
+
+## Структура проєкту
+
+```text
+book-tracker/
+├── pom.xml                      ← батьківський POM (packaging = pom)
+├── mvnw / mvnw.cmd              ← Maven Wrapper
+├── docker-compose.yml           ← Keycloak
+├── common/
+│   ├── pom.xml
+│   └── src/                     ← DTO, ReadingStatus, валідатор + тести
+├── book-service/
+│   ├── pom.xml                  ← тут оголошено spring-boot-maven-plugin
+│   ├── Dockerfile
+│   └── src/
+│       ├── main/java/...        ← BookTrackerApplication
+│       └── main/resources/application.yml
+└── reporting-service/
+    ├── pom.xml                  ← тут оголошено spring-boot-maven-plugin
+    ├── Dockerfile
+    └── src/
+        ├── main/java/...        ← ReportingServiceApplication
+        └── main/resources/application.yml
+```
+
+## Відповідність сценаріям лабораторної
+
+| № | Вимога | Де реалізовано |
+|---|---|---|
+| **1** | Кореневий POM з `packaging = pom`, у `<modules>` перелічено всі сервіси, кожен модуль посилається на кореневий POM, `mvn verify` зелений | `pom.xml` (`<modules>`), `<parent>` у `pom.xml` кожного модуля |
+| **2** | Спільна залежність оголошена в кореневому POM, а не в модулях | `spring-boot-starter-test` у `<dependencies>` кореневого `pom.xml` |
+| **3** | Власний main, `application.yml`, порт; плагін Spring Boot — у POM самого сервісу | `BookTrackerApplication` (`8080`), `ReportingServiceApplication` (`8081`), `spring-boot-maven-plugin` лише у POM сервісів |
+| **4** | Жоден сервіс не залежить від іншого; єдиний спільний модуль — `common` з DTO | вивід `mvn dependency:tree` (див. нижче) |
+
+## Запуск Keycloak
+
+```bash
+docker compose up -d
+```
+
+Keycloak доступний на `http://localhost:9090`. Потрібен realm **`book-tracker`** з:
+
+- клієнтом `book-tracker-ui` (вхід користувачів у `book-service`);
+- клієнтом `reporting-service` з увімкненими **Service accounts roles** (токен для REST-виклику в `book-service`);
+- ролями `ADMIN`, `USER` та тестовими користувачами.
+
+### Запуск сервісів
+
+Порядок: **Keycloak → `book-service` → `reporting-service`**.
+
+З IntelliJ: запустіть `BookTrackerApplication` і `ReportingServiceApplication`.
+
+```bash
+./mvnw -DskipTests package
+
+cd book-service
+java -jar target/book-service-0.0.1-SNAPSHOT.jar
+```
+
+```bash
+cd reporting-service
+java -jar target/reporting-service-0.0.1-SNAPSHOT.jar
+```
+
+| Сервіс | Адреса |
+|---|---|
+| book-service (UI) | <http://localhost:8080/books> |
+| reporting-service | <http://localhost:8081/api/reports> |
+
+
+## reporting-service: API для перевірки
+
+Job'и виконуються за розкладом (Quartz). Щоб не чекати cron, є невеликий API:
+
+| Метод | Ендпоінт | Що робить |
+|---|---|---|
+| `POST` | `/api/reports/generate?period=WEEKLY` | створює звіт (повторний виклик за той самий день → `created: false`) |
+| `GET` | `/api/reports` | список звітів: кількість книжок за статусами |
+| `POST` | `/api/reports/reminders` | надсилає нагадування для книжок зі статусом `READING` |
+
+Приклад (PowerShell):
+
+```powershell
+Invoke-RestMethod -Method Post "http://localhost:8081/api/reports/generate?period=WEEKLY"
+Invoke-RestMethod "http://localhost:8081/api/reports"
+```
+
+Дані про книжки `reporting-service` бере з `GET /api/books` у `book-service`.
+Інформація «кого вже нагадували» зберігається у власній таблиці `reminder_log`.
+
+
+## Перевірка незалежності сервісів
+
+```bash
+./mvnw -DskipTests package dependency:tree -Dincludes=com.booktracker
+```
+
+Очікуваний результат:
+
+```text
+common             →  (порожньо)
+book-service       →  com.booktracker:common
+reporting-service  →  com.booktracker:common
+```
+
+## Docker
+
+У кожного сервісу власний `Dockerfile` (двоетапна збірка: Maven → JRE).
+Контекст збірки — корінь репозиторію, бо `common` лежить поруч:
+
+```bash
+docker build -f book-service/Dockerfile -t book-service .
+docker build -f reporting-service/Dockerfile -t reporting-service .
+```
+
+---
+
+## Тести
+
+| Модуль | Що покрито |
+|---|---|
+| `common` | `ReadingProgressValidatorTest` |
+| `book-service` | сервіси, контролер, AOP-аспекти, async-нотифікації |
+| `reporting-service` | job'и, конфігурація Quartz, сервіси звітів і нагадувань, `RestBookClient` |
+
+```bash
+./mvnw verify
+```
+
+
