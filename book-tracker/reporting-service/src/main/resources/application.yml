@@ -1,0 +1,47 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: reporting-service
+
+  datasource:
+    url: jdbc:h2:file:./data/reporting;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: never
+    overwrite-existing-jobs: true
+    scheduler-name: reporting-scheduler
+    wait-for-jobs-to-complete-on-shutdown: true
+    properties:
+      org.quartz.threadPool.threadCount: 3
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+  security:
+    oauth2:
+      client:
+        registration:
+          book-service:                       # id, який використовує BookClientConfig
+            provider: keycloak
+            client-id: reporting-service
+            client-secret: ${REPORTING_CLIENT_SECRET:reporting-dev-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            # token-uri замість issuer-uri: не ліземо в Keycloak під час старту
+            token-uri: http://localhost:9090/realms/book-tracker/protocol/openid-connect/token
+
+book-service:
+  url: http://localhost:8080

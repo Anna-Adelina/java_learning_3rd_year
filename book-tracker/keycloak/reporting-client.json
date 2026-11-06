@@ -1,0 +1,16 @@
+{
+  "ifResourceExists": "SKIP",
+  "clients": [
+    {
+      "clientId": "reporting-service",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "reporting-dev-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ]
+}
