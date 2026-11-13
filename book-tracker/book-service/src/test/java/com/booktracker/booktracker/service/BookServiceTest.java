@@ -8,12 +8,15 @@ import com.booktracker.booktracker.mapper.BookMapper;
 import com.booktracker.booktracker.repository.AuthorRepository;
 import com.booktracker.booktracker.repository.BookRepository;
 import com.booktracker.booktracker.service.exception.EntityNotFoundException;
+import com.booktracker.booktracker.event.BookEvent;
+import com.booktracker.booktracker.event.BookEventType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +35,9 @@ class BookServiceTest {
 
     @Mock
     private BookMapper bookMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private BookService bookService;
@@ -111,6 +117,7 @@ class BookServiceTest {
         // Act + Assert
         assertThrows(EntityNotFoundException.class, () -> bookService.create(inputDto));
         verify(bookRepository, never()).save(any());
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -148,24 +155,55 @@ class BookServiceTest {
     }
 
     @Test
-    void delete_whenBookExists_deletesById() {
-        // Arrange
-        when(bookRepository.existsById(1L)).thenReturn(true);
+    void delete_whenBookExists_deletesBook() {
+        Book book = Book.builder().id(1L).title("1984").build();
+        when(bookRepository.findById(1L)).thenReturn(Optional.of(book));
 
-        // Act
         bookService.delete(1L);
 
-        // Assert
-        verify(bookRepository).deleteById(1L);
+        verify(bookRepository).delete(book);
+        verify(eventPublisher).publishEvent(any(BookEvent.class));
     }
 
     @Test
     void delete_whenBookNotFound_throwsEntityNotFoundException() {
-        // Arrange
-        when(bookRepository.existsById(99L)).thenReturn(false);
+        when(bookRepository.findById(99L)).thenReturn(Optional.empty());
 
-        // Act + Assert
         assertThrows(EntityNotFoundException.class, () -> bookService.delete(99L));
-        verify(bookRepository, never()).deleteById(anyLong());
+        verify(bookRepository, never()).delete(any());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
+    void update_whenStatusBecomesFinished_publishesBookFinishedEvent() {
+        Author author = Author.builder().id(1L).build();
+        Book existing = Book.builder().id(1L).title("1984").readingStatus(ReadingStatus.READING).build();
+        BookDto dto = BookDto.builder().title("1984").authorId(1L).readingStatus(ReadingStatus.FINISHED).build();
+        when(bookRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(authorRepository.findById(1L)).thenReturn(Optional.of(author));
+        when(bookRepository.save(existing)).thenReturn(existing);
+        when(bookMapper.toDto(existing)).thenReturn(dto);
+
+        bookService.update(1L, dto);
+
+        ArgumentCaptor<BookEvent> captor = ArgumentCaptor.forClass(BookEvent.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertEquals(BookEventType.BOOK_FINISHED, captor.getValue().type());
+        assertEquals(1L, captor.getValue().bookId());
+    }
+
+    @Test
+    void update_whenBookWasAlreadyFinished_publishesNothing() {
+        Author author = Author.builder().id(1L).build();
+        Book existing = Book.builder().id(1L).title("1984").readingStatus(ReadingStatus.FINISHED).build();
+        BookDto dto = BookDto.builder().title("1984").authorId(1L).readingStatus(ReadingStatus.FINISHED).build();
+        when(bookRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(authorRepository.findById(1L)).thenReturn(Optional.of(author));
+        when(bookRepository.save(existing)).thenReturn(existing);
+        when(bookMapper.toDto(existing)).thenReturn(dto);
+
+        bookService.update(1L, dto);
+
+        verifyNoInteractions(eventPublisher);
     }
 }

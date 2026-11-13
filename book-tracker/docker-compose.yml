@@ -11,5 +11,63 @@ services:
     volumes:
       - keycloak_data:/opt/keycloak/data
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # веб-панель
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  book-service:                      # producer
+    build:
+      context: .
+      dockerfile: book-service/Dockerfile
+    container_name: book-service
+    environment:
+      RABBITMQ_HOST: rabbitmq        # ім'я сервісу з цього файлу, не localhost
+      # Keycloak для браузера і для контейнера має бути за ОДНИМ адресом (див. пояснення нижче)
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER_URI: http://host.docker.internal:9090/realms/book-tracker
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://host.docker.internal:9090/realms/book-tracker
+    ports:
+      - "8080:8080"
+    volumes:
+      - book_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    restart: on-failure              # Keycloak стартує довше за сервіс: пробуємо ще раз
+
+  reporting-service:                 # consumer
+    build:
+      context: .
+      dockerfile: reporting-service/Dockerfile
+    container_name: reporting-service
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      BOOK_SERVICE_URL: http://book-service:8080
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_TOKEN_URI: http://host.docker.internal:9090/realms/book-tracker/protocol/openid-connect/token
+    ports:
+      - "8081:8081"
+    volumes:
+      - reporting_data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   keycloak_data:
+  rabbitmq_data:
+  book_data:
+  reporting_data:

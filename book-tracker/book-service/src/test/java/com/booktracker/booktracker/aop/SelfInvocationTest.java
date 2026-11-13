@@ -64,7 +64,7 @@ class SelfInvocationTest {
 
         @Bean
         BookService bookService(BookRepository books, AuthorRepository authors, BookMapper mapper) {
-            return new BookService(books, authors, mapper);
+            return new BookService(books, authors, mapper, event -> { });
         }
     }
 

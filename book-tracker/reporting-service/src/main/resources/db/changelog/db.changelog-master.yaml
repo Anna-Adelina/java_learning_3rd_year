@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-quartz-schema.yaml
   - include:
       file: db/changelog/changes/002-reports-and-reminders.yaml
+  - include:
+      file: db/changelog/changes/003-book-activity.yaml
